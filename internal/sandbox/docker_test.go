@@ -19,7 +19,7 @@ import (
 //
 // VIBECI_TEST_DATA must be a directory the docker VM can bind-mount (on
 // Colima/Docker Desktop: somewhere under $HOME). VIBECI_TEST_IMAGE defaults
-// to alpine:3.22.
+// to alpine:3.24, pulled if the engine lacks it.
 func dockerTestSetup(t *testing.T) (*DockerProvider, string) {
 	host := os.Getenv("VIBECI_DOCKER_HOST")
 	if host == "" {
@@ -36,14 +36,14 @@ func dockerTestSetup(t *testing.T) (*DockerProvider, string) {
 	t.Cleanup(func() { os.RemoveAll(root) })
 	image := os.Getenv("VIBECI_TEST_IMAGE")
 	if image == "" {
-		image = "alpine:3.22"
+		image = "alpine:3.24"
 	}
 	cfg := &config.Sandboxd{
 		DockerHost:   host,
 		DataRoot:     root,
 		DataHostPath: root,
 		Profiles: map[string]*config.Profile{
-			"default": {Image: image, User: fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()), Memory: "512m", Pids: 256, TmpSize: "64m"},
+			"default": {Image: image, Pull: "missing", User: fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()), Memory: "512m", Pids: 256, TmpSize: "64m"},
 		},
 	}
 	cfg.ApplyDefaults()

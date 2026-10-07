@@ -1,0 +1,153 @@
+// VibeCI harness configuration (JSONC: comments and trailing commas are
+// allowed). Secrets are "env:NAME", "file:/path" or a literal value.
+// Several files can be given (-config a.jsonc -config b.jsonc): later ones
+// override earlier ones key by key, e.g. to keep providers separate.
+{
+  "data_dir": "/data",
+  "interval": "30m",       // time between sync cycles
+  "repo_timeout": "4h",    // upper bound for one repo's sync
+  "keep_jobs": "168h",     // how long job transcripts/workspaces are kept
+  "max_parallel": 1,       // repos synced concurrently
+  "log_level": "info",
+  // Also keep each repo's state (exclusions, holds, cached verdicts) in its
+  // fork under this ref, for hosts that start empty (CI runners):
+  // "state_ref": "refs/vibeci/state",
+
+  // Author and committer of merge commits.
+  "identity": { "name": "VibeCI", "email": "vibeci@users.noreply.example.com" },
+
+  "providers": {
+    "anthropic": {
+      "type": "anthropic",
+      "api_key": "file:/run/secrets/llm_api_key"
+    }
+    // An Anthropic-compatible gateway that expects a bearer token:
+    // "gateway": {
+    //   "type": "anthropic",
+    //   "base_url": "https://llm-gateway.example.com/anthropic/v1",
+    //   "auth": "bearer",
+    //   "api_key": "file:/run/secrets/llm_api_key"
+    // },
+    // OpenAI Responses API:
+    // "openai": { "type": "openai-responses", "api_key": "env:OPENAI_API_KEY" },
+    // Chat Completions-compatible servers (vLLM, llama.cpp, ...):
+    // "local": { "type": "openai-chat", "base_url": "http://llm.internal:8000/v1" }
+  },
+
+  // Use the most capable models available to you: every role is security-
+  // or correctness-critical. A model of a second family makes a good last
+  // resort for the merge agent.
+  "models": {
+    "strong": {
+      "provider": "anthropic",
+      "model": "claude-opus-4-1",
+      "max_tokens": 32000,
+      "thinking": "adaptive",
+      "effort": "high"
+    }
+    // "second": { "provider": "openai", "model": "gpt-5", "max_tokens": 32000, "effort": "high" },
+    // A cheaper triage model is possible when token cost matters:
+    // "fast": { "provider": "anthropic", "model": "claude-sonnet-4-5", "max_tokens": 16000, "effort": "medium" }
+  },
+
+  "roles": {
+    "triage": "strong",       // reads every new upstream diff (most tokens)
+    "investigate": "strong",  // digs into flagged commits with read-only tools
+    "audit": "strong",        // reviews code written by the merge agent
+    "resolve": ["strong"]     // merge agent escalation ladder, e.g. ["strong", "second"]
+  },
+
+  "sandbox": { "mode": "broker", "socket": "/run/vibeci/sandboxd.sock" },
+
+  "alerts": [
+    // Default events: blocked, suspicious, failed, rewritten, error, recovered.
+    // Add "synced" (or "*") to hear about every merge.
+    { "name": "phone", "type": "ntfy", "url": "https://ntfy.sh/your-private-topic" }
+    // { "type": "discord", "url": "file:/run/secrets/discord_webhook" },
+    // { "type": "slack", "url": "file:/run/secrets/slack_webhook" },
+    // { "type": "generic", "url": "https://hooks.example.com/vibeci", "headers": { "Authorization": "file:/run/secrets/hook_auth" } }
+  ],
+
+  "repos": [
+    {
+      "name": "myproject",
+      // The token needs write access to the fork's contents. GitHub also
+      // requires the "workflow" scope to push merges that change
+      // .github/workflows, which keep_ours below avoids.
+      "fork": {
+        "url": "https://github.com/me/myproject.git",
+        "branch": "main",
+        "auth": { "token": "file:/run/secrets/git_token" }
+      },
+      "upstream": { "url": "https://github.com/upstream/myproject.git", "branch": "main" },
+      // Or follow releases instead of a branch:
+      // "upstream": { "url": "https://github.com/upstream/myproject.git", "tags": "v*" },
+
+      // Tell the merge agent what the fork changes, so it preserves intent.
+      "description": "Adds a --frobnicate flag and points telemetry at our own collector. Keep both.",
+
+      // Paths where the fork's version always wins. Upstream CI changes are
+      // a common way to reach a fork's secrets, so never take them blindly.
+      "keep_ours": [".github/workflows/**"],
+
+      "sandbox": { "profile": "go", "verify_profile": "go", "prefetch_profile": "go-egress" },
+      "prefetch": [{ "name": "modules", "run": "go mod download", "timeout": "15m" }],
+      "verify": [
+        { "name": "build", "run": "go build ./...", "timeout": "20m" },
+        { "name": "test", "run": "go test ./...", "timeout": "30m" }
+      ],
+
+      "review": {
+        "block_on": "malicious",   // or "suspicious" to also stop on doubtful commits
+        "min_confidence": 0.7,
+        // What happens to a blocked commit: "exclude" merges upstream without
+        // it (its changes are reverted and kept out of later merges); "hold"
+        // stops merging right before it until it is allowed.
+        "on_blocked": "exclude",
+        "max_commits_per_run": 250
+        // "allow_commits": ["<sha of a commit you reviewed and accept>"]  (or: vibeci allow)
+      },
+      "resolve": { "max_rounds": 4, "timeout": "90m" },
+      "push": { "mode": "direct" },        // or { "mode": "branch", "branch": "vibeci/sync" } to review merges yourself
+      "on_upstream_rewrite": "hold"
+    },
+    {
+      // A patch-mode fork: patch files plus a pinned upstream version
+      // (README.md, "Patch-mode forks"). VibeCI moves the pin to upstream's
+      // new releases and has the patch agent rewrite patches that no longer
+      // apply. Upstream commits are not reviewed; the agent's lines are
+      // audited.
+      "name": "ungoogled-chromium",
+      "fork": {
+        "url": "https://github.com/me/ungoogled-chromium.git",
+        "branch": "master",
+        "auth": { "token": "file:/run/secrets/git_token" }
+      },
+      "upstream": {
+        // GitHub serves single files of a partial clone quickly.
+        "url": "https://github.com/chromium/chromium.git",
+        // The version to follow: Chrome's stable channel. Or "tags": a glob
+        // of release tags (the newest wins), with "tag_format" if tags are
+        // not the bare version, e.g. "v{version}".
+        "version_url": "https://versionhistory.googleapis.com/v1/chrome/platforms/linux/channels/stable/versions?pageSize=1",
+        "version_regex": "\"version\": \"([0-9.]+)\""
+      },
+      "description": "Chromium without Google integration: the patches remove Google services and background requests and add privacy options.",
+      "patches": {
+        "series": "patches/series",            // quilt series; or "glob", or "sets" with per-set "root"/"strip"
+        "version_file": "chromium_version.txt",  // holds the pinned version
+        "update_files": { "revision.txt": "1\n" },  // rewritten on every version update
+        "ignore_whitespace": true,               // like patch --ignore-whitespace
+        // Repositories embedded in upstream's tree that patches touch.
+        "sources": [
+          { "path": "v8", "url": "https://github.com/v8/v8.git" },
+          { "path": "third_party/devtools-frontend/src", "url": "https://github.com/ChromeDevTools/devtools-frontend.git" },
+          { "path": "third_party/search_engines_data/resources", "url": "https://chromium.googlesource.com/external/search_engines_data.git", "fetch": "full" }
+        ]
+      },
+      // The patch agent needs only shell and git tools; no checks run
+      // without "verify".
+      "sandbox": { "profile": "default" }
+    }
+  ]
+}

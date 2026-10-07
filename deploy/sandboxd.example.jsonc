@@ -1,0 +1,58 @@
+// VibeCI sandbox broker configuration. This file is the security policy for
+// everything that runs untrusted code: the merge agent's shell, dependency
+// prefetching and build/test verification. The harness can only choose a
+// profile by name.
+{
+  "listen": "/run/vibeci/sandboxd.sock",
+  "docker_host": "unix:///var/run/docker.sock",
+
+  // Where the harness sees its data directory, and how the broker mounts
+  // pieces of it into sandboxes: the named volume of the compose file
+  // (requires Docker Engine 26+ for volume subpath mounts)...
+  "data_root": "/data",
+  "data_volume": "vibeci-data",
+  // ...or, if the harness data dir is a host directory, its host path:
+  // "data_host_path": "/srv/vibeci/data",
+
+  "max_sandboxes": 8,
+  "max_lifetime": "6h",
+  "max_exec_timeout": "2h",
+
+  "profiles": {
+    // Generic offline sandbox.
+    "default": {
+      "image": "vibeci-sandbox:base",
+      "memory": "4g",
+      "cpus": 2,
+      "pids": 2048,
+      "tmp_size": "4g"
+    },
+
+    // Go projects: offline, using modules fetched by the prefetch step.
+    "go": {
+      "image": "vibeci-sandbox:go",
+      "memory": "6g",
+      "cpus": 4,
+      "env": {
+        "GOMODCACHE": "/cache/gomod",
+        "GOCACHE": "/cache/gobuild",
+        "GOPROXY": "off",
+        "GOFLAGS": "-mod=readonly"
+      }
+    },
+
+    // Same image with network egress, for prefetch commands only. Create the
+    // network first:
+    //   docker network create -o com.docker.network.bridge.enable_icc=false vibeci-egress
+    "go-egress": {
+      "image": "vibeci-sandbox:go",
+      "network": "vibeci-egress",
+      "memory": "4g",
+      "cpus": 2,
+      "env": {
+        "GOMODCACHE": "/cache/gomod",
+        "GOCACHE": "/cache/gobuild"
+      }
+    }
+  }
+}

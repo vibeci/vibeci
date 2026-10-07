@@ -1,0 +1,14 @@
+// Real models for the end-to-end tests:
+//   VIBECI_E2E=1 VIBECI_E2E_LLM_CONFIG=e2e/llm.example.jsonc go test ./e2e -v
+// Only "providers", "models" and "roles" are read; the syntax is that of
+// the main config file. Secrets are "env:NAME" or "file:/path".
+{
+  "providers": {
+    "anthropic": { "type": "anthropic", "api_key": "env:ANTHROPIC_API_KEY" }
+    // "openai": { "type": "openai-responses", "api_key": "env:OPENAI_API_KEY" }
+  },
+  "models": {
+    "strong": { "provider": "anthropic", "model": "claude-opus-4-1", "max_tokens": 32000, "thinking": "adaptive", "effort": "high" }
+  },
+  "roles": { "triage": "strong", "investigate": "strong", "audit": "strong", "resolve": ["strong"] }
+}

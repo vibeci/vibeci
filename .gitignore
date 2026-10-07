@@ -1,0 +1,16 @@
+# credentials: never commit
+.secrets/
+secrets/
+*.token
+.env
+# operator configs (may hold private URLs or inline secrets); examples are tracked
+/deploy/config.jsonc
+/deploy/sandboxd.jsonc
+
+# local runtime data
+/data/
+/.tmp-test/
+/bin/
+/dist/
+*.test
+coverage.out

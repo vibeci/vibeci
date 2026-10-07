@@ -1,0 +1,59 @@
+# End-to-end tests with real models, including the fatih/color sync. They
+# spend model tokens, so they run on demand and weekly, and only if the
+# VIBECI_E2E_LLM_CONFIG secret holds a model fragment (the format of
+# e2e/llm.example.jsonc). API keys go inline in that secret or, referenced
+# as env:ANTHROPIC_API_KEY / env:OPENAI_API_KEY, in secrets of those names.
+name: e2e-live
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 5 * * 1"
+
+permissions:
+  contents: read
+
+env:
+  GOTOOLCHAIN: local
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - id: check
+        env:
+          LLM_CONFIG: ${{ secrets.VIBECI_E2E_LLM_CONFIG }}
+        run: |
+          if [ -n "$LLM_CONFIG" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::secret VIBECI_E2E_LLM_CONFIG is not set; skipping the live tests"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  live:
+    name: e2e (real models, docker sandboxes, fatih/color)
+    needs: gate
+    if: needs.gate.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Write the model fragment
+        env:
+          LLM_CONFIG: ${{ secrets.VIBECI_E2E_LLM_CONFIG }}
+        run: |
+          umask 077
+          printf '%s\n' "$LLM_CONFIG" > "$RUNNER_TEMP/llm.jsonc"
+      - run: make e2e-live E2E_LLM="$RUNNER_TEMP/llm.jsonc"
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

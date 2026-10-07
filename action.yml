@@ -1,0 +1,74 @@
+name: VibeCI
+description: Keep a fork merged with its upstream, with a security review of upstream commits and LLM conflict resolution in sandboxes.
+author: The VibeCI Authors
+branding:
+  icon: git-merge
+  color: purple
+
+inputs:
+  config:
+    description: >-
+      VibeCI config files (JSONC), one per line, merged in order: later files
+      override earlier ones key by key. Paths are relative to the repository
+      root; files not checked out are read from the repository at the
+      workflow's commit. A repo without fork.url is this repository.
+    default: .github/vibeci.jsonc
+  models:
+    description: >-
+      JSONC merged after the config files, normally a secret: providers
+      (with API keys), models and roles. Its URLs, headers, keys and model
+      ids are masked in the log and the job summary.
+    default: ""
+  token:
+    description: >-
+      Token for fetching and pushing the fork. It needs contents write, and
+      workflows write if upstream changes files in .github/workflows (the
+      default GITHUB_TOKEN cannot push those).
+    default: ${{ github.token }}
+  command:
+    description: run, review, status, allow, exclude, release, check, patches or config.
+    default: run
+  args:
+    description: >-
+      Further arguments for the command, split like a shell does, e.g.
+      "-dry-run" or "-reason 'false positive' 1a2b3c4d5e".
+    default: ""
+  mask:
+    description: More strings to mask in the log and the job summary, one per line.
+    default: ""
+  images:
+    description: Sandbox images to build (base, go).
+    default: base go
+
+outputs:
+  status:
+    description: >-
+      run: the outcome needing the most attention (up-to-date, synced,
+      dry-run, raced, backoff, held, blocked, failed, error); other
+      commands: ok, attention or error.
+    value: ${{ steps.vibeci.outputs.status }}
+  commit:
+    description: The commit pushed or proposed by run, if any.
+    value: ${{ steps.vibeci.outputs.commit }}
+  json:
+    description: The command's -json output.
+    value: ${{ steps.vibeci.outputs.json }}
+  records:
+    description: Directory with the job records (transcripts) on the runner.
+    value: ${{ steps.vibeci.outputs.records }}
+
+runs:
+  using: composite
+  steps:
+    - id: vibeci
+      shell: bash
+      env:
+        VIBECI_ACTION_CONFIG: ${{ inputs.config }}
+        VIBECI_ACTION_MODELS: ${{ inputs.models }}
+        VIBECI_ACTION_COMMAND: ${{ inputs.command }}
+        VIBECI_ACTION_ARGS: ${{ inputs.args }}
+        VIBECI_ACTION_MASK: ${{ inputs.mask }}
+        VIBECI_ACTION_IMAGES: ${{ inputs.images }}
+        VIBECI_TOKEN: ${{ inputs.token }}
+        VIBECI_VERSION: ${{ github.action_ref }}
+      run: '"$GITHUB_ACTION_PATH/deploy/action.sh"'

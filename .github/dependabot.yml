@@ -1,0 +1,15 @@
+# Dependabot keeps the pinned actions and base images current. VibeCI has
+# no Go module dependencies.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directories:
+      - /deploy
+      - /deploy/sandbox
+      - /e2e/compose
+    schedule:
+      interval: weekly

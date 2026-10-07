@@ -1,0 +1,11 @@
+// Config of the action's smoke test in .github/workflows/ci.yml: this
+// repository is the fork (no fork.url), fatih/color an upstream to reach.
+// The job runs `vibeci check -no-llm` through `uses: ./`.
+{
+  "repos": [{
+    "upstream": {"url": "https://github.com/fatih/color.git", "branch": "main"},
+    "review": {"enabled": false},
+    "push": {"dry_run": true}
+  }],
+  "roles": {"audit": "m", "resolve": ["m"]}
+}

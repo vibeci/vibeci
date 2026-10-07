@@ -1,0 +1,90 @@
+# VibeCI deployment: the harness (vibeci) plus the sandbox broker (sandboxd).
+#
+#   cd deploy
+#   cp config.example.jsonc config.jsonc       # then edit
+#   cp sandboxd.example.jsonc sandboxd.jsonc   # then edit
+#   mkdir -p secrets && printf %s "$KEY" > secrets/llm_api_key && printf %s "$TOKEN" > secrets/git_token
+#   chmod 0644 secrets/*   # read by uid 10001 inside the container; keep the directory private (0700)
+#   docker network create -o com.docker.network.bridge.enable_icc=false vibeci-egress   # for prefetch profiles
+#   docker compose --profile images build      # sandbox images
+#   docker compose up -d --build
+#
+# VIBECI_IMAGE (default vibeci:latest) and VIBECI_DATA_VOLUME (default
+# vibeci-data; must match data_volume in sandboxd.jsonc) can be overridden
+# from the environment.
+#
+# Trust boundaries:
+#   - vibeci holds the LLM key and git credentials, has network access, and
+#     cannot reach Docker. It only asks sandboxd for sandboxes by profile name.
+#   - sandboxd is the only container with the Docker socket. It has no
+#     network and no credentials, and applies a fixed policy to every
+#     sandbox: no capabilities, read-only root, non-root user, resource
+#     limits, network only if the profile names one, and only the job's
+#     own directory mounted from the data volume.
+name: vibeci
+
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options: { max-size: "20m", max-file: "5" }
+
+services:
+  sandboxd:
+    <<: *hardening
+    build: { context: .., dockerfile: deploy/Dockerfile }
+    image: ${VIBECI_IMAGE:-vibeci:latest}
+    command: ["sandboxd", "-config", "/etc/vibeci/sandboxd.jsonc"]
+    # Root is only needed to open the Docker socket; all capabilities are
+    # dropped. Anything that can use that socket is root-equivalent on the
+    # host, which is why this container does nothing else.
+    user: "0:0"
+    network_mode: none
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - sock:/run/vibeci
+      - ./sandboxd.jsonc:/etc/vibeci/sandboxd.jsonc:ro
+
+  vibeci:
+    <<: *hardening
+    build: { context: .., dockerfile: deploy/Dockerfile }
+    image: ${VIBECI_IMAGE:-vibeci:latest}
+    command: ["daemon", "-config", "/etc/vibeci/config.jsonc"]
+    depends_on: [sandboxd]
+    tmpfs:
+      - /tmp:size=1g,mode=1777
+    volumes:
+      - data:/data
+      - sock:/run/vibeci
+      - ./config.jsonc:/etc/vibeci/config.jsonc:ro
+    secrets: [llm_api_key, git_token]
+    healthcheck:
+      test: ["CMD", "vibeci", "health", "-config", "/etc/vibeci/config.jsonc"]
+      interval: 5m
+      timeout: 30s
+      start_period: 2m
+
+  # Build-only services for the sandbox images: docker compose --profile images build
+  sandbox-base:
+    profiles: [images]
+    build: { context: sandbox, dockerfile: base.Dockerfile }
+    image: vibeci-sandbox:base
+  sandbox-go:
+    profiles: [images]
+    build: { context: sandbox, dockerfile: go.Dockerfile }
+    image: vibeci-sandbox:go
+
+volumes:
+  data:
+    # Fixed name: sandboxd.jsonc refers to it as data_volume.
+    name: ${VIBECI_DATA_VOLUME:-vibeci-data}
+  sock: {}
+
+secrets:
+  llm_api_key:
+    file: ./secrets/llm_api_key
+  git_token:
+    file: ./secrets/git_token

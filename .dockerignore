@@ -1,0 +1,13 @@
+.git
+.secrets
+secrets
+*.token
+.env
+data
+.tmp-test
+bin
+dist
+*.test
+coverage.out
+deploy/*.jsonc
+!deploy/*.example.jsonc

@@ -1,0 +1,114 @@
+# CI for VibeCI itself. Every step is a Makefile target, so `make <target>`
+# reproduces a job locally and `make ci` runs them all. No secrets needed:
+# the end-to-end tests use the scripted fake model.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GOTOOLCHAIN: local
+
+jobs:
+  unit:
+    name: lint, unit tests (race), build — Go ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: minimum (go.mod)
+            version-file: go.mod
+          - name: stable
+            version: stable
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ matrix.version }}
+          go-version-file: ${{ matrix.version-file }}
+          cache: false
+      - run: make lint
+      - run: make race
+      - run: make build
+
+  e2e:
+    name: e2e (fake model, unsafe-local sandbox)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - run: make e2e
+
+  docker:
+    name: sandbox policy + e2e (docker sandboxes)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - run: make test-docker
+      - run: make e2e-docker
+
+  action:
+    name: GitHub Action (uses ./, vibeci check)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The fork is this repository; the model is never called (-no-llm).
+      - id: smoke
+        uses: ./
+        with:
+          config: e2e/action/smoke.jsonc
+          models: '{"providers": {"p": {"type": "anthropic", "api_key": "unused"}}, "models": {"m": {"provider": "p", "model": "unused"}}}'
+          command: check
+          args: -no-llm
+      - name: Check the outputs
+        env:
+          STATUS: ${{ steps.smoke.outputs.status }}
+          JSON: ${{ steps.smoke.outputs.json }}
+        run: |
+          test "$STATUS" = ok
+          printf '%s' "$JSON" | grep -q '"ok": true'
+          printf '%s' "$JSON" | grep -q '"name": "sandbox profile default"'
+
+  compose:
+    name: e2e (docker compose deployment)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - run: make e2e-compose

@@ -1,0 +1,19 @@
+# Test-only additions to deploy/docker-compose.yml for e2e/compose_test.go:
+# a git server standing in for the hosting service, and the fake model
+# (which also collects alerts). The test runs, from the repository root:
+#   docker compose -p <project> --project-directory <workdir> \
+#     -f deploy/docker-compose.yml -f e2e/compose/docker-compose.e2e.yml up -d --no-build
+# Relative paths below are relative to <workdir>.
+services:
+  vibeci:
+    depends_on: [sandboxd, gitd, fakellm]
+  gitd:
+    image: vibeci-e2e-gitd
+    user: "${VIBECI_E2E_UID:?set by e2e/compose_test.go}:${VIBECI_E2E_GID:?set by e2e/compose_test.go}"
+    command: ["git", "daemon", "--reuseaddr", "--export-all", "--enable=receive-pack", "--base-path=/srv/git", "/srv/git"]
+    volumes: ["./git:/srv/git"]
+  fakellm:
+    image: vibeci-e2e-fakellm
+    user: "${VIBECI_E2E_UID:?set by e2e/compose_test.go}:${VIBECI_E2E_GID:?set by e2e/compose_test.go}"
+    command: ["-listen", ":8080", "-script", "/e2e/script.json", "-alerts", "/e2e/alerts.jsonl"]
+    volumes: ["./fakellm:/e2e"]

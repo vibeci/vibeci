@@ -2,7 +2,7 @@
 # and build caches at /cache (see sandboxd.example.jsonc), so dependencies
 # fetched by the prefetch step are available to the offline sandboxes.
 #   docker build -f deploy/sandbox/go.Dockerfile -t vibeci-sandbox:go deploy/sandbox
-FROM golang:1.27-alpine@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414
+FROM golang:1.27-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d
 RUN apk add --no-cache \
       git bash coreutils findutils grep sed gawk diffutils patch file \
       jq ripgrep make build-base ca-certificates \

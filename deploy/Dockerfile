@@ -9,7 +9,7 @@ COPY internal ./internal
 ARG VERSION=dev
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/vibeci ./cmd/vibeci
 
-FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+FROM alpine:3.24@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
 RUN apk add --no-cache git openssh-client ca-certificates tini \
  && addgroup -S -g 10001 vibeci \
  && adduser -S -D -H -u 10001 -G vibeci -h /data/home -s /sbin/nologin vibeci \
